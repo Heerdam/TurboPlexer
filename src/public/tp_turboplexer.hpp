@@ -88,13 +88,12 @@ namespace {
 			void bindState(GLFWwindow*);
 			void unbindState(GLFWwindow*);
 			void loadState(GLFWwindow*);
-			void parseFilter(const std::string&, const std::function<void(const Event&)>);			
-			void bindDelegate(const std::function<void(const Event&)>);
+			void parseFilter(GLFWwindow*, const std::string&, const std::function<void(const Event&)>);
+			void bindDelegate(GLFWwindow* _state, const uint, const std::string&, const std::function<void(const Event&)>);
 		public:
 			static TurboPlexer& get(GLFWwindow*);
 			void insert(GLFWwindow*, const std::string&, const std::function<void(const Event&)>, const int = 0);
-			void remove(const uint);
-			void registerPair(const uint, const char);
+			void remove(GLFWwindow*, const std::string&);
 		};
 
 		TurboPlexer* TurboPlexer::instance = new TurboPlexer();
@@ -137,12 +136,12 @@ namespace {
 			assert(states.count(id) > 0 && "TurboPlexer::removeState: state doesnt exist.");
 			states.erase(id);
 			glfwSetWindowUserPointer(_state, nullptr);
-			glfwSetKeyCallback(_state, 0);
-			glfwSetCharCallback(_state, 0);
-			glfwSetMouseButtonCallback(_state, 0);
-			glfwSetCursorPosCallback(_state, 0);
-			glfwSetCursorEnterCallback(_state, 0);
-			glfwSetScrollCallback(_state, 0);
+			glfwSetKeyCallback(_state, 0); //0
+			glfwSetCharCallback(_state, 0); //1
+			glfwSetMouseButtonCallback(_state, 0); //2
+			glfwSetCursorPosCallback(_state, 0); //3
+			glfwSetCursorEnterCallback(_state, 0); //4
+			glfwSetScrollCallback(_state, 0); //5
 		}
 
 		inline void TurboPlexer::loadState(GLFWwindow* _state) {
@@ -157,13 +156,17 @@ namespace {
 			filter syntax:
 			event: '[]' - same delegate can be bound to multiple events: '[...][...]...'
 
-			mouse position: [_axis_] - axis: x, y
+			mouse position: [_axis_] - axis: x, y, xy
 			mouse buttons: [_button_;_state_] - buttons: 1-8, 'left', 'right', 'middle' - state: 'press', 'release'
-			keys: '[_key_;_modifier_,_modifier_,...;_state_]' - valid modifiers: '', 'alt', 'ctrl', 'shift', 'super', 'caps', 'numlock' - special: unicode: {_keycode_;unicode;""}
+			mouse enter: [_state_change_] - states: enter, leave
+			mouse scroll: [_scroll_axis_] - scroll axis: sx, sy, sxsy
 
-			key combination: [{_key_;_state_}{_key_;_state_}...;_time_] - keys: needs at least 2 pairs. bind mouse buttons with '$'. time: max time elapsed between strokes.  - state: 'press', 'release', 'repeat'
+			keys: '[_key_;_modifier_,_modifier_,...;_state_]' - valid modifiers: '', 'alt', 'ctrl', 'shift', 'super', 'caps', 'numlock' - special: unicode: {_keycode_;unicode;""}
+			chars:
+
+			[not yet implemented] key combination: [{_key_;_state_}{_key_;_state_}...;_time_] - keys: needs at least 2 pairs. bind mouse buttons with '$'. time: max time elapsed between strokes.  - state: 'press', 'release', 'repeat'
 		*/
-		inline void TurboPlexer::parseFilter(const std::string& _filter, const std::function<void(const Event&)> _delegate) {
+		inline void TurboPlexer::parseFilter(GLFWwindow* _state, const std::string& _filter, const std::function<void(const Event&)> _delegate) {
 			assert(!_filter.empty() && "TurboPlexer::parseFilterAndInsert: filter can't be empty");
 			const std::vector<std::string> ss = util::split(_filter, "][");
 			for (size_t i = 0; i < ss.size(); ++i) {
@@ -173,87 +176,66 @@ namespace {
 				const std::string s_r = !i ? s.substr(1) : i == ss.size() - 1 ? s.substr(0, s.size() - 1) : s;
 				//check if key combination
 				const size_t is_combination = s_r.find_first_of('{', 0);
-				if (is_combination == 0) {
-					
-
-
+				if (is_combination == 0) {					
+					//TODO: nope 
 				} else { //not a combination
 					const std::vector<std::string> sd = util::split(s_r, ";");
 					switch (sd.size()) {
-						case 1: //mouse pos
+						case 1: //mouse pos, state change or mouse scroll
 						{
 							const std::string mp = sd[0];
-							if (mp.size() == 2)
-								bindDelegate(_delegate);
-							else {
-								if (mp == "x") bindDelegate(_delegate);
-								else bindDelegate(_delegate);
-							}
+							const uint state = mp == "x" || mp == "y" || mp == "xy" ? 3 : mp == "sx" || mp == "sy" || mp == "sxsy" ? 5 : mp == "enter" || mp == "leave" ? 4 : 0;
+							assert(state != 0 && "illegal mouse position, state change or scroll axis. Input: " && mp.c_str());
+							bindDelegate(_state, state, mp, _delegate);
 						}
 						break;
 						case 2://mouse button
 						{
 							//get button
 							const std::string& button = sd[0];
-							int btn = std::stoi(button);
-							assert(btn >= 0 && btn <= 8 && "buttons need to be between [0, 8]");
+							const int btn = button == "left" ? GLFW_MOUSE_BUTTON_LEFT : button == "middle" ? GLFW_MOUSE_BUTTON_MIDDLE : button == "right" ? GLFW_MOUSE_BUTTON_RIGHT : std::stoi(button);
+							assert(btn >= 0 && btn <= 8 && "buttons need to be between [0, 8] or 'left', 'middle' or 'right. Input: " && button.c_str());
 								
 							//get state
-							const std::string& state = sd[1];
-							int st = 0;
-							if (state == "press") {
-								st = GLFW_PRESS;
-							} else if (state == "release") {
-								st = GLFW_RELEASE;
-							} else assert(false && "only 'press', 'release' are valid");
+							const std::string& state = sd[1];						
+							const int st = state == "press" ? GLFW_PRESS : state == "release" ? GLFW_RELEASE : -1;
+							assert(st != -1 && "only 'press', 'release' are valid. Input: " && state.c_str());
 
-							bindDelegate(_delegate);
+							bindDelegate(_state, 1, std::to_string(btn) + std::to_string(st), _delegate);
 						}
 						break;
 						case 3://key
 						{
 							//get key
 							const std::string& key = sd[0];
-							const int k = std::stoi(key);
+							//const int k = std::stoi(key);
 
 							//'', 'alt', 'ctrl', 'shift', 'super', 'capslock', 'numlock', 'unicode'
 							//get modifier
 							const std::string& modifier = sd[1];
 							const std::vector<std::string> mod_split = util::split(modifier, ",");
+						
 							uint mod = 0;
 							bool isUnicode = false;
 							for (const auto& m : mod_split) {
 								if (m.empty()) continue;
-								if (m == "alt") {
-									mod |= GLFW_MOD_SHIFT;
-								} else if (m == "ctrl") {
-									mod |= GLFW_MOD_CONTROL;
-								} else if (m == "shift") {
-									mod |= GLFW_MOD_ALT;
-								} else if (m == "super") {
-									mod |= GLFW_MOD_SUPER;
-								} else if (m == "capslock") {
-									mod |= GLFW_MOD_CAPS_LOCK;
-								} else if (m == "numlock") {
-									mod |= GLFW_MOD_NUM_LOCK;
-								} else if (m == "unicode") {
+								if (m == "unicode") {
 									isUnicode = true;
 									break;
-								} else assert(false && "invalid modifier");
+								}
+								assert(m == "alt" || m == "ctrl" || m == "shift" || m == "super" || m == "capslock" || m == "numlock" && "no valid key modifiert. valid modifier: 'alt', 'ctrl', 'shift', 'super', 'capslock', 'numlock': Input: " && m.c_str());
+								mod |= m == "alt" ? GLFW_MOD_ALT : m == "ctrl" ? GLFW_MOD_CONTROL : m == "shift" ? GLFW_MOD_SHIFT : m == "super" ? GLFW_MOD_SUPER : m == "capslock" ? GLFW_MOD_CAPS_LOCK : m == "numlock" ? GLFW_MOD_NUM_LOCK : 0;
 							}
+							if (isUnicode) {
+								bindDelegate(_state, 1, key, _delegate);
+							} else {
+								//get state
+								const std::string& state = sd[2];
+								const int st = state == "press" ? GLFW_PRESS : state == "release" ? GLFW_RELEASE : state == "repeat" ? GLFW_REPEAT : -1;
+								assert(st != -1 && "only 'press', 'release' and 'repeat' are valid. Input: " && state.c_str());
 
-							//get state
-							const std::string& state = sd[2];
-							int st = 0;
-							if (state == "press") {
-								st = GLFW_PRESS;
-							} else if (state == "release") {
-								st = GLFW_RELEASE;
-							} else if (state == "repeat") {
-								st = GLFW_REPEAT;
-							} else assert(false && "only 'press', 'release', 'repeat' are valid");
-
-							bindDelegate(_delegate);
+								bindDelegate(_state, 0, key + std::to_string(mod) + std::to_string(st), _delegate);
+							}
 						}
 						break;
 					}
@@ -261,13 +243,13 @@ namespace {
 			}
 		}
 
-		inline void TurboPlexer::bindDelegate(const std::function<void(const Event& _event)>) {
-
+		inline void TurboPlexer::bindDelegate(GLFWwindow* _state, const uint _index, const std::string& _key, const std::function<void(const Event& _event)> _val) {
+			auto state = get(_state).currentState;
+			state->delegates[_index][_key].push_back(_val);
 		}
 
 		inline void TurboPlexer::insert(GLFWwindow* _state, const std::string& _filter, const std::function<void(const Event&)> _delegate, const int _priority) {
-			loadState(_state);
-			parseFilter(_filter, _delegate);
+			parseFilter(_state, _filter, _delegate);
 		}
 
 		inline TurboPlexer& TurboPlexer::get(GLFWwindow* _state) {
@@ -275,12 +257,8 @@ namespace {
 			return *instance;
 		}
 
-		inline void TurboPlexer::remove(const uint _scancode) {
-
-		}
-
-		inline void TurboPlexer::registerPair(const uint _scancode, const char _character) {
-
+		inline void TurboPlexer::remove(GLFWwindow*, const std::string&) {
+			//TODO
 		}
 
 		/*
@@ -319,7 +297,7 @@ namespace {
 			e.action = _action;
 			e.mods = _mods;
 
-			for (const auto& del : state->delegates[2][std::to_string(_button) + std::to_string(_action) + std::to_string(_mods)])
+			for (const auto& del : state->delegates[2][std::to_string(_button) + std::to_string(_action)])
 				del(e);
 		}
 
@@ -335,6 +313,7 @@ namespace {
 			Event e;
 			e.mousePosition[0] = _xpos;
 			e.mousePosition[1] = _ypos;
+			//todo delta
 
 			if(xMoved)
 				for (const auto& del : state->delegates[3]["x"])
@@ -342,6 +321,10 @@ namespace {
 
 			if(yMoved)
 				for (const auto& del : state->delegates[3]["y"])
+					del(e);
+
+			if(xMoved && yMoved)
+				for (const auto& del : state->delegates[3]["xy"])
 					del(e);
 		}
 
@@ -390,11 +373,11 @@ namespace {
 	}
 
 	inline bool TurboPlexer_Remove(GLFWwindow* _window, const uint _id) {
-		TurboPlexer::TurboPlexer::get(_window).remove(_id);
+		//TurboPlexer::TurboPlexer::get(_window).remove(_id);
 	}
 
 	inline void TurboPlexer_RegisterCustomEvent(GLFWwindow* _window, const uint _scancode, const char _character) {
-		TurboPlexer::TurboPlexer::get(_window).registerPair(_scancode, _character);
+		//TurboPlexer::TurboPlexer::get(_window).registerPair(_scancode, _character);
 	}
 
 }

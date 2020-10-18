@@ -18,30 +18,32 @@ include(FetchContent)
 
 SET(HEADER
 	src/public/tp_turboplexer.hpp
-	src/public/tp_defines.hpp
 )
 
 add_library(turboplexer STATIC
 	"${HEADER}"
-	src/private/tp_tuboplexer.cpp
 )
+
+set_target_properties(turboplexer PROPERTIES LINKER_LANGUAGE CXX)
 
 target_include_directories(turboplexer PUBLIC ${CMAKE_CURRENT_LIST_DIR}/src/public)
 
-# ------------------ GLM ------------------
-find_package (glm 0.9.9.9 QUIET)
-if(glm_FOUND)
-	message(STATUS "GLM found!")
+# ------------------ SPD Log ------------------
+find_package (spdlog 1.8.1 QUIET)
+if(spdlog_FOUND)
+	message(STATUS "SPD Log found!")
 else()
-	message(STATUS "GLM not found! Fetching...")
+	option(SPDLOG_BUILD_EXAMPLE "Build example" OFF)
+	option(SPDLOG_BUILD_TESTING "Build tests" OFF)
+	message(STATUS "SPD Log not found! Fetching...")
 	FetchContent_Declare(
-			glm
-			GIT_REPOSITORY https://github.com/g-truc/glm
+			spdlog 
+			GIT_REPOSITORY https://github.com/gabime/spdlog
 	)
-	FetchContent_GetProperties(glm)
-	if(NOT glm_POPULATED)
-		FetchContent_Populate(glm)
-		add_subdirectory("${glm_SOURCE_DIR}" "${glm_BINARY_DIR}")
+	FetchContent_GetProperties(spdlog )
+	if(NOT spdlog_POPULATED)
+		FetchContent_Populate(spdlog)
+		add_subdirectory("${spdlog_SOURCE_DIR}" "${spdlog_BINARY_DIR}")
 	endif()
 endif ()
 
@@ -69,7 +71,8 @@ else()
 	endif()
 endif()
 
+
 target_link_libraries(turboplexer
 	glfw
-	glm
+	spdlog
 )
